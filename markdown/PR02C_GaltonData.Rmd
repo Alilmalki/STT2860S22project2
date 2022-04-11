@@ -1,0 +1,256 @@
+---
+title: "Project 2C: Galton Data"
+author: "Preet Piyush Patel, Ali Lmalki, Jocelyn Pelcastre-Gonzalez"
+date: '`r format(Sys.time(), "%A, %B %d, %Y @ %I:%M %p")`'
+output: 
+  html_document: 
+    theme: cosmo
+    highlight: textmate
+    code_folding: hide
+---
+
+```{r globaloptions, include = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  comment = NA
+)
+```
+***
+
+## Setup
+
+### Packages Used
+
+```{r loadpackages}
+library(tidyverse)
+library(skimr)
+```
+
+### Datasets Used
+
+#### Background of the Data
+
+Francis Galton, a cousin of Charles Darwin, studied the relationship between parent heights and the heights of their offspring. His pioneering [1886 article](https://galton.org/essays/1880-1889/galton-1886-jaigi-regression-stature.pdf) is the first appearance of regression analysis in print. He originated many statistical terms and concepts, including regression, correlation, deviate, quartile, and percentile, plus median for the midpoint of a distribution. The `galtonheightdata` dataset was [created under the direction of Dr. James A. Hanley](http://www.medicine.mcgill.ca/epidemiology/hanley/galton/) using Galton's [original paper notebooks](http://www.medicine.mcgill.ca/epidemiology/hanley/galton/notebook/index.html) containing the measurement data. You can access the `galtonfamiliesmain.csv` and `galtonfamiliessub.csv` datasets from the [description](https://stat-jet-asu.github.io/Datasets/InstructorDescriptions/galtonheightdata.html) page. A third dataset, `galtonfamiliesnotebook.csv`, shows the notebook page on which each family's information was recorded.
+
+#### Galton Main Dataset
+
+```{r loadmaindata}
+data_main <- read_csv("https://raw.githubusercontent.com/STAT-JET-ASU/Datasets/master/Instructor/galtonfamiliesmain.csv")
+```
+
+#### Galton Subset Dataset
+
+```{r loadsubdata}
+data_sub <- read_csv("https://raw.githubusercontent.com/STAT-JET-ASU/Datasets/master/Instructor/galtonfamiliessub.csv")
+```
+
+#### Galton Notebook Dataset
+
+```{r loadnotebook}
+data_notebook <- read_csv("https://raw.githubusercontent.com/STAT-JET-ASU/Datasets/master/Instructor/galtonfamiliesnotebook.csv")
+```
+
+<hr>
+
+## Analyses
+
+### Create the Analysis Datasets
+
+#### Dataset #1
+
+Load the three Galton datasets and use `glimpse()` to explore their structures. Refer to Project 1 and use the new data binding/joining skills you have learned to assemble a single dataset that meets the following criteria. Use `glimpse()` and `head()` to display the result. (Hint: Use `bind_rows()` to connect the `main` and `sub` datasets, then use a join to add the `notebook` information.)
+
+* contains these variables:
+   * `familyid` = ID number of the family, with `136A` recoded as `205`
+   * `page` = the notebook page on which the family is recorded
+   * `num_children`= the number of children in the family
+   * `father_ht` = the height of the father
+   * `mother_ht` = the "transmuted" (per Galton) height of the mother
+   * `midparent` = the average of the parents' heights (using transmuted mother)
+   * `child_sex`= whether the child is a son or a daughter, in all lower case
+   * `child_ht` = the height of the child with daughter heights "transmuted"
+   
+* is arranged according to:
+   * ascending order of familyid
+   * sons before daughters within family
+   * in order of height within each sex of child
+
+```{r assembledata1}
+
+data_main <- data_main %>%
+  mutate(
+    family_id = as.numeric(ifelse(FamilyID == "136A", 205, FamilyID)),
+    mother_ht = Mother * 1.08,
+    midparent = (Father + mother_ht) / 2,
+    child_ht = ifelse(Child == "Daughter", Height * 1.08, Height)
+  ) %>%
+  select(
+    family_id,
+    num_children = Children,
+    father_ht = Father,
+    mother_ht,
+    midparent,
+    child_sex = Child,
+    child_ht
+  ) %>%
+  arrange(
+    family_id,
+    desc(child_sex),
+    desc(child_ht)
+  )
+
+glimpse(data_main)
+
+data_sub <- data_sub %>%
+  mutate(
+    father_ht = FatherR + 60,
+    mother = MotherR + 60,
+    mother_ht = mother * 1.08,
+    midparent = (father_ht + mother_ht) / 2,
+    height = HeightR + 60,
+    child_ht = ifelse(Child == "Daughter", height * 1.08, height)
+  ) %>%
+  select(
+    family_id = FamilyID,
+    num_children = Children,
+    father_ht,
+    mother_ht,
+    midparent,
+    child_sex = Child,
+    child_ht
+  ) %>%
+  arrange(
+    family_id,
+    desc(child_sex),
+    desc(child_ht)
+  )
+
+glimpse(data_sub)
+
+data_notebook <- data_notebook %>%
+   select(
+      family_id = FamilyID,
+      Page
+   )
+
+
+data_notebook$family_id <- as.double(data_notebook$family_id)
+
+glimpse(data_notebook)
+
+dataset1 <- bind_rows(data_main, data_sub) %>%
+inner_join(data_notebook, by = "family_id") %>%
+arrange(
+   family_id,
+   desc(child_ht)
+)
+
+glimpse(dataset1)
+head(dataset1)
+```
+
+#### Dataset #2
+
+From Dataset #1, select the variables `familyid` and `num_children`, then reduce the dataset so it contains only one unique row per family. Use `glimpse()` to display the result. (Hint: The final dataset should have 205 rows/observations and two variables/columns.)
+
+```{r assembledata2}
+dataset2 <- dataset1 %>%
+  select(family_id, num_children) %>%
+  distinct()
+
+glimpse(dataset2)
+```
+
+### Visualization 1: Updated Scatterplot
+
+#### Galton's Visualization
+
+In his original paper (linked above), Galton created several tables and diagrams. His "Diagram Based on Table 1" of them is similar in concept to a scatterplot. Rather than dots, he grouped/tabulated the data, and then used the count of how many people were grouped at the coordinate pairs in his grid, with child as the x-axis and mid-parent as the y-axis. There are two scales: inches and deviations from 68.25 inches.
+
+```{r galtonscatterplot, echo = FALSE}
+knitr::include_graphics(path = "../images/galtonplot.png")
+```
+
+#### Your Data Visualization
+
+**This plot uses Dataset #1.**
+
+Create a scatterplot of child height (x-axis) versus mid-parent height (y-axis). Ordinarily, we might reverse the axes here because analysts would be more likely to model child height as a function of parent height, but we want to be able to compare the updated plot to Galton's original.
+
+Include the following.
+
+* make your dots larger than the default size to help show density
+* set transparency to adjust for overplotting and help show density
+* use `color =` in the `aes` to differentiate sons versus daughters
+* use `scale_color_manual()` to choose two colorblind-safe colors
+* scale both axes so that there is a tick mark at every whole inch
+* use `coord_fixed()` so that the axes have the same unit spacing
+* add better x- and y-axis labels, including the units of measure
+* add an informative title (you may optionally include a subtitle)
+* add `color =` to `labs()` to set the legend title to `"gender of child"` 
+* use a built-in theme (e.g., `theme_linedraw()`) to add formatting
+* use `theme()` to move the legend to the bottom of the scatterplot
+
+```{r updatedscatterplot}
+ggplot(dataset1, aes(x = child_ht, y = midparent, color = child_sex)) + 
+  geom_point(size = 2, alpha = 0.7) +
+  scale_color_manual(values = c("orange", "blue")) +
+  scale_x_continuous(breaks = seq(60, 80, by = 1)) +
+  scale_y_continuous(breaks = seq(60, 80, by = 1)) +
+  coord_fixed() +
+  labs(x = "Child Height in inches", y = "Mid-parent height in inches", title = "Plot of Child Height (Inches) vs. Mid-parent Height (Inches)", color = "Gender of child") +
+  theme_linedraw() +
+  theme(legend.position = "bottom")
+  
+
+```
+
+### Visualization 2: Number of Children
+
+**This plot uses Dataset #2.**
+
+Create a barplot to show the distribution of the number of children per family. Set the bars to something other than the default `width`. Scale the x-axis so that there is a tick mark for each bar. Choose appropriate colors, labels, themes, and/or and other types of formatting that you feel will enhance the meaning or visual appearance of the plot.  (Hint: Use `count()` to find out how many families have a given number of children, then use that information to create your plot.)
+
+```{r childrenbarplot}
+childrendataset2 <- dataset2 %>% count(num_children)
+
+childrenbarplot <- 
+  ggplot(childrendataset2, aes(x = num_children, y = n)) +
+  geom_col(width = 0.8, fill = "dodgerblue3") +
+  scale_x_continuous(breaks = 1:15) +
+  theme_minimal() +
+  labs(title = "Number of Children in Each Family", 
+       x = "Number of Children", 
+       y = "Numer of Families")
+
+childrenbarplot
+```
+
+<hr>
+
+## Questions
+
+**Question 1:** Do you think your scatterplot is an improvement over Galton's original diagram? Are there any other modifications and/or additions you would make to enhance the clarity or usefulness of your plot?
+
+**ANSWER**
+
+Yes, the new scatterplot seems to have a better correlation between the midparent height and the children height. The new scatterplot is also easier to read than Galton's original diagram. It does not contain as much information as the original one, which makes it easier to read and understand. The 3D quality of Galton's original diagram makes it harder to read, removing that quality therefore enhanced our scatterplot's legibility. 
+
+
+**Question 2:** Explain the rationale behind the choices you made when creating your scatterplot and barplot, such as size, color, transparency, or other features. What motivated your decisions? 
+
+**ANSWER**
+
+We made these choices to enhance the visual appearance of the plots, and to make the analysis phase of the experiment easier to conduct. Modifying the opacity and size of the dots in our scatterplot made it easier to be able to tell distinct points and determine where there was more density. The colors in the scatterplot are distinct enought to be able to be distinguished from each other. The sizes of the bars on the bargraph were changed to make it easier to read. We can still determine the distribution of chidren in each family while being able to see each bar separately. 
+
+**Question 3:** Considering best practices, how does using `coord_fixed()` enhance the authenticity of the information shown in the scatterplot, such as the relationship and spread of the data?
+
+**ANSWER**
+
+Fixing the ratio of length between the y and x axes is important to preserve the relationship between the data. Otherwise the difference of units would violate this relationship. Using `coord_fixed()` allows for us to keep both axes porportionate to each other, therefore we can be sure to accurately portray the relationship in the data. 
+
+***
+```{r}
+sessionInfo()
+```
